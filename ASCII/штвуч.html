@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ASCII Камера</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background-color: #000;
+            color: #fff;
+            font-family: monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        #videoContainer {
+            position: relative;
+            margin-bottom: 20px;
+        }
+
+        #video {
+            display: none;
+        }
+
+        #asciiCanvas {
+            background-color: #000;
+            border: 1px solid #333;
+            max-width: 100%;
+            font-size: 8px;
+            line-height: 8px;
+            letter-spacing: 0;
+            white-space: pre;
+            overflow: auto;
+        }
+
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        button {
+            padding: 10px 15px;
+            background-color: #333;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: monospace;
+        }
+
+        button:hover {
+            background-color: #555;
+        }
+
+        select {
+            padding: 10px;
+            background-color: #333;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+
+        .info {
+            margin-top: 20px;
+            text-align: center;
+            max-width: 600px;
+            color: #aaa;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <h1>ASCII Камера</h1>
+
+    <div id="videoContainer">
+        <video id="video" autoplay playsinline></video>
+        <pre id="asciiCanvas"></pre>
+    </div>
+
+    <div class="controls">
+        <button id="startBtn">Запустить камеру</button>
+        <button id="stopBtn">Остановить камеру</button>
+        <select id="densitySelect">
+            <option value="low">Низкая плотность</option>
+            <option value="medium" selected>Средняя плотность</option>
+            <option value="high">Высокая плотность</option>
+        </select>
+    </div>
+
+    <div class="info">
+        <p>Это приложение преобразует видео с вашей камеры в ASCII-графику с использованием символов латиницы и арабских цифр.</p>
+        <p>Разрешение и производительность зависят от вашего устройства и браузера.</p>
+    </div>
+
+    <script>
+        // Элементы DOM
+        const video = document.getElementById('video');
+        const asciiCanvas = document.getElementById('asciiCanvas');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const densitySelect = document.getElementById('densitySelect');
+
+        // Набор символов для ASCII-графики (латинские буквы и цифры)
+        const asciiChars = {
+            low: '@%#*+=-:. ',
+            medium: '$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,"^`\'. ',
+            high: ' .\'`^",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$'
+        };
+
+        let stream = null;
+        let animationId = null;
+
+        // Функция для запроса доступа к камере
+        async function startCamera() {
+            try {
+                // Запрос доступа к камере
+                stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+
+                // Обработчик для начала воспроизведения видео
+                video.addEventListener('loadedmetadata', function() {
+                    startRendering();
+                });startBtn.disabled = true;
+                stopBtn.disabled = false;
+            } catch (err) {
+                console.error('Ошибка доступа к камере:', err);
+                alert('Не удалось получить доступ к камере. Пожалуйста, проверьте разрешения.');
+            }
+        }
+
+        // Функция для остановки камеры
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
+
+            asciiCanvas.textContent = '';
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+        }
+
+        // Функция для преобразования пикселей в ASCII
+        function renderAscii() {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+
+            // Устанавливаем размеры canvas в соответствии с видео
+            const width = video.videoWidth;
+            const height = video.videoHeight;
+
+            // Ограничиваем размер для производительности
+            const maxWidth = 120;
+            const ratio = height / width;
+            const scaledWidth = Math.min(width, maxWidth);
+            const scaledHeight = Math.floor(scaledWidth * ratio * 0.5); // Учитываем соотношение сторон символов
+
+            canvas.width = scaledWidth;
+            canvas.height = scaledHeight;
+
+            // Рисуем видео на canvas
+            ctx.drawImage(video, 0, 0, scaledWidth, scaledHeight);
+
+            // Получаем данные изображения
+            const imageData = ctx.getImageData(0, 0, scaledWidth, scaledHeight);
+            const data = imageData.data;
+
+            // Получаем выбранный набор символов
+            const density = densitySelect.value;
+            const chars = asciiChars[density];
+
+            // Создаем ASCII-изображение
+            let asciiImage = '';
+
+            for (let y = 0; y < scaledHeight; y++) {
+                for (let x = 0; x < scaledWidth; x++) {
+                    // Получаем индекс пикселя в массиве данных
+                    const index = (y * scaledWidth + x) * 4;
+
+                    // Получаем значения RGB
+                    const r = data[index];
+                    const g = data[index + 1];
+                    const b = data[index + 2];
+
+                    // Вычисляем яркость пикселя
+                    const brightness = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+
+                    // Выбираем символ на основе яркости
+                    const charIndex = Math.floor(brightness * (chars.length - 1));
+                    const char = chars.charAt(charIndex);
+
+                    // Добавляем символ к изображению
+                    asciiImage += char;
+                }
+                asciiImage += '\n';
+            }
+
+            // Отображаем ASCII-изображение
+            asciiCanvas.textContent = asciiImage;
+
+            // Запускаем следующий кадр
+            animationId = requestAnimationFrame(renderAscii);
+        }
+
+        // Функция для запуска рендеринга
+        function startRendering() {
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+            }
+            renderAscii();
+        }
+
+        // Обработчики событий
+        startBtn.addEventListener('click', startCamera);
+        stopBtn.addEventListener('click', stopCamera);
+        densitySelect.addEventListener('change', startRendering);
+
+        // Инициализация кнопок
+        stopBtn.disabled = true;
+    </script>
+</body>
+</html>
